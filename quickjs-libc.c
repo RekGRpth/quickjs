@@ -1713,9 +1713,9 @@ static BOOL is_main_thread(JSRuntime *rt)
 static JSOSRWHandler *find_rh(JSThreadState *ts, int fd)
 {
     JSOSRWHandler *rh;
-    struct list_head *el;
+    struct list_head *el, *el1;
 
-    list_for_each(el, &ts->os_rw_handlers) {
+    list_for_each_safe(el, el1, &ts->os_rw_handlers) {
         rh = list_entry(el, JSOSRWHandler, link);
         if (rh->fd == fd)
             return rh;
@@ -1778,8 +1778,8 @@ static JSValue js_os_setReadHandler(JSContext *ctx, JSValueConst this_val,
 static JSOSSignalHandler *find_sh(JSThreadState *ts, int sig_num)
 {
     JSOSSignalHandler *sh;
-    struct list_head *el;
-    list_for_each(el, &ts->os_signal_handlers) {
+    struct list_head *el, *el1;
+    list_for_each_safe(el, el1, &ts->os_signal_handlers) {
         sh = list_entry(el, JSOSSignalHandler, link);
         if (sh->sig_num == sig_num)
             return sh;
@@ -1971,7 +1971,7 @@ static int js_os_poll(JSContext *ctx)
     int min_delay, console_fd;
     int64_t cur_time, delay;
     JSOSRWHandler *rh;
-    struct list_head *el;
+    struct list_head *el, *el1;
     
     /* XXX: handle signals if useful */
 
@@ -1982,7 +1982,7 @@ static int js_os_poll(JSContext *ctx)
     if (!list_empty(&ts->os_timers)) {
         cur_time = get_time_ms();
         min_delay = 10000;
-        list_for_each(el, &ts->os_timers) {
+        list_for_each_safe(el, el1, &ts->os_timers) {
             JSOSTimer *th = list_entry(el, JSOSTimer, link);
             delay = th->timeout - cur_time;
             if (delay <= 0) {
@@ -2005,7 +2005,7 @@ static int js_os_poll(JSContext *ctx)
     }
 
     console_fd = -1;
-    list_for_each(el, &ts->os_rw_handlers) {
+    list_for_each_safe(el, el1, &ts->os_rw_handlers) {
         rh = list_entry(el, JSOSRWHandler, link);
         if (rh->fd == 0 && !JS_IsNull(rh->rw_func[0])) {
             console_fd = rh->fd;
@@ -2023,12 +2023,12 @@ static int js_os_poll(JSContext *ctx)
         handle = (HANDLE)_get_osfhandle(console_fd);
         ret = WaitForSingleObject(handle, ti);
         if (ret == WAIT_OBJECT_0) {
-            list_for_each(el, &ts->os_rw_handlers) {
+            list_for_each_safe(el, el1, &ts->os_rw_handlers) {
                 rh = list_entry(el, JSOSRWHandler, link);
                 if (rh->fd == console_fd && !JS_IsNull(rh->rw_func[0])) {
                     call_handler(ctx, rh->rw_func[0]);
                     /* must stop because the list may have been modified */
-                    break;
+//                    break;
                 }
             }
         }
@@ -2124,7 +2124,7 @@ static int js_os_poll(JSContext *ctx)
     int64_t cur_time, delay;
     fd_set rfds, wfds;
     JSOSRWHandler *rh;
-    struct list_head *el;
+    struct list_head *el, *el1;
     struct timeval tv, *tvp;
 
     /* only check signals in the main thread */
@@ -2133,7 +2133,7 @@ static int js_os_poll(JSContext *ctx)
         JSOSSignalHandler *sh;
         uint64_t mask;
         
-        list_for_each(el, &ts->os_signal_handlers) {
+        list_for_each_safe(el, el1, &ts->os_signal_handlers) {
             sh = list_entry(el, JSOSSignalHandler, link);
             mask = (uint64_t)1 << sh->sig_num;
             if (os_pending_signals & mask) {
@@ -2151,7 +2151,7 @@ static int js_os_poll(JSContext *ctx)
     if (!list_empty(&ts->os_timers)) {
         cur_time = get_time_ms();
         min_delay = 10000;
-        list_for_each(el, &ts->os_timers) {
+        list_for_each_safe(el, el1, &ts->os_timers) {
             JSOSTimer *th = list_entry(el, JSOSTimer, link);
             delay = th->timeout - cur_time;
             if (delay <= 0) {
@@ -2179,7 +2179,7 @@ static int js_os_poll(JSContext *ctx)
     FD_ZERO(&rfds);
     FD_ZERO(&wfds);
     fd_max = -1;
-    list_for_each(el, &ts->os_rw_handlers) {
+    list_for_each_safe(el, el1, &ts->os_rw_handlers) {
         rh = list_entry(el, JSOSRWHandler, link);
         fd_max = max_int(fd_max, rh->fd);
         if (!JS_IsNull(rh->rw_func[0]))
@@ -2188,7 +2188,7 @@ static int js_os_poll(JSContext *ctx)
             FD_SET(rh->fd, &wfds);
     }
 
-    list_for_each(el, &ts->port_list) {
+    list_for_each_safe(el, el1, &ts->port_list) {
         JSWorkerMessageHandler *port = list_entry(el, JSWorkerMessageHandler, link);
         if (!JS_IsNull(port->on_message_func)) {
             JSWorkerMessagePipe *ps = port->recv_pipe;
@@ -2199,34 +2199,34 @@ static int js_os_poll(JSContext *ctx)
 
     ret = select(fd_max + 1, &rfds, &wfds, NULL, tvp);
     if (ret > 0) {
-        list_for_each(el, &ts->os_rw_handlers) {
+        list_for_each_safe(el, el1, &ts->os_rw_handlers) {
             rh = list_entry(el, JSOSRWHandler, link);
             if (!JS_IsNull(rh->rw_func[0]) &&
                 FD_ISSET(rh->fd, &rfds)) {
                 call_handler(ctx, rh->rw_func[0]);
                 /* must stop because the list may have been modified */
-                goto done;
+//                goto done;
             }
             if (!JS_IsNull(rh->rw_func[1]) &&
                 FD_ISSET(rh->fd, &wfds)) {
                 call_handler(ctx, rh->rw_func[1]);
                 /* must stop because the list may have been modified */
-                goto done;
+//                goto done;
             }
         }
 
-        list_for_each(el, &ts->port_list) {
+        list_for_each_safe(el, el1, &ts->port_list) {
             JSWorkerMessageHandler *port = list_entry(el, JSWorkerMessageHandler, link);
             if (!JS_IsNull(port->on_message_func)) {
                 JSWorkerMessagePipe *ps = port->recv_pipe;
                 if (FD_ISSET(ps->read_fd, &rfds)) {
-                    if (handle_posted_message(rt, ctx, port))
-                        goto done;
+                    if (handle_posted_message(rt, ctx, port));
+//                        goto done;
                 }
             }
         }
     }
-    done:
+//    done:
     return 0;
 }
 #endif /* !_WIN32 */
